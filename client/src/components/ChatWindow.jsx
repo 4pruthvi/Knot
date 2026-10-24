@@ -1,54 +1,55 @@
 
-import { useState } from "react";
 import { Phone, Video, MoreVertical } from "lucide-react";
 import MessageInput from "./MessageInput";
 
-const initialMessages = [
-  { id: 1, sender: "Alex", text: "Hey! How's the new project going?", time: "10:42 AM", mine: false },
-  { id: 2, sender: "You", text: "Pretty good! I'm building KNOT from scratch.", time: "10:43 AM", mine: true },
-  { id: 3, sender: "Alex", text: "Nice! The UI is going to look great 🔥", time: "10:43 AM", mine: false },
-];
-
-export default function ChatWindow() {
-  const [messages, setMessages] = useState(initialMessages);
-
-  function sendMessage(text) {
-    setMessages((previous) => [
-      ...previous,
-      {
-        id: Date.now(),
-        sender: "You",
-        text,
-        time: new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-        mine: true,
-      },
-    ]);
-  }
-
+export default function ChatWindow({
+  selectedChat,
+  messages,
+  onSendMessage,
+}) {
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-[#0b1020] text-white">
       <header className="flex items-center justify-between border-b border-white/10 px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="flex h-11 w-11 items-center justify-center rounded-full bg-violet-500/20 font-semibold text-violet-300">
-            AM
+            {selectedChat.name
+              .split(" ")
+              .map((part) => part[0])
+              .join("")
+              .slice(0, 2)}
           </div>
+
           <div>
-            <h2 className="font-semibold">Alex Morgan</h2>
-            <p className="mt-1 text-xs text-emerald-400">Online</p>
+            <h2 className="font-semibold">{selectedChat.name}</h2>
+            <p
+              className={`mt-1 text-xs ${
+                selectedChat.online
+                  ? "text-emerald-400"
+                  : "text-slate-400"
+              }`}
+            >
+              {selectedChat.online ? "Online" : "Offline"}
+            </p>
           </div>
         </div>
 
         <div className="flex items-center gap-1 text-slate-400">
-          <button aria-label="Voice call" className="rounded-xl p-2.5 hover:bg-white/5 hover:text-white">
+          <button
+            aria-label="Voice call"
+            className="rounded-xl p-2.5 hover:bg-white/5 hover:text-white"
+          >
             <Phone size={19} />
           </button>
-          <button aria-label="Video call" className="rounded-xl p-2.5 hover:bg-white/5 hover:text-white">
+          <button
+            aria-label="Video call"
+            className="rounded-xl p-2.5 hover:bg-white/5 hover:text-white"
+          >
             <Video size={19} />
           </button>
-          <button aria-label="More options" className="rounded-xl p-2.5 hover:bg-white/5 hover:text-white">
+          <button
+            aria-label="More options"
+            className="rounded-xl p-2.5 hover:bg-white/5 hover:text-white"
+          >
             <MoreVertical size={19} />
           </button>
         </div>
@@ -62,16 +63,26 @@ export default function ChatWindow() {
         {messages.map((message) => (
           <div
             key={message.id}
-            className={`flex ${message.mine ? "justify-end" : "justify-start"}`}
+            className={`flex ${
+              message.mine ? "justify-end" : "justify-start"
+            }`}
           >
-            <div className={`max-w-[75%] ${message.mine ? "items-end" : "items-start"} flex flex-col`}>
+            <div
+              className={`flex max-w-[75%] flex-col ${
+                message.mine ? "items-end" : "items-start"
+              }`}
+            >
               <div
                 className={`mb-1 flex gap-2 text-xs ${
                   message.mine ? "flex-row-reverse" : ""
                 }`}
               >
-                <span className="font-medium text-slate-300">{message.sender}</span>
-                <span className="text-slate-500">{message.time}</span>
+                <span className="font-medium text-slate-300">
+                  {message.sender}
+                </span>
+                <span className="text-slate-500">
+                  {message.time}
+                </span>
               </div>
 
               <div
@@ -88,7 +99,8 @@ export default function ChatWindow() {
         ))}
       </div>
 
-      <MessageInput onSend={sendMessage} />
+      <MessageInput onSend={onSendMessage} />
     </section>
   );
 }
+

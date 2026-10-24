@@ -1,14 +1,8 @@
-
 import { Search, Plus, MessageCircle } from "lucide-react";
 
-const conversations = [
-  { id: 1, name: "Alex Morgan", message: "See you soon!", time: "2m", online: true },
-  { id: 2, name: "Sarah Chen", message: "That looks amazing 🔥", time: "15m", online: true },
-  { id: 3, name: "Dev Squad", message: "You: pushed the latest code", time: "1h", online: false },
-  { id: 4, name: "Jordan Lee", message: "Thanks for the help!", time: "3h", online: false },
-];
 
-export default function Sidebar() {
+
+export default function Sidebar({ conversations, selectedChatId, onSelectChat }) {
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col border-r border-white/10 bg-[#101426] text-white">
       <div className="flex items-center justify-between border-b border-white/10 p-5">
@@ -42,7 +36,12 @@ export default function Sidebar() {
         {conversations.map((chat) => (
           <button
             key={chat.id}
-            className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-white/5"
+            onClick={() => onSelectChat(chat)}
+            className={`flex w-full items-center gap-3 rounded-xl p-3 text-left transition ${
+              selectedChatId === chat.id
+                ? "bg-violet-500/15"
+                : "hover:bg-white/5"
+            }`}
           >
             <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-violet-500/20 font-semibold text-violet-300">
               {chat.name
@@ -57,8 +56,12 @@ export default function Sidebar() {
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium">{chat.name}</span>
-                <span className="shrink-0 text-xs text-slate-500">{chat.time}</span>
+                <span className="truncate text-sm font-medium">
+                  {chat.name}
+                </span>
+                <span className="shrink-0 text-xs text-slate-500">
+                  {chat.time}
+                </span>
               </div>
               <p className="mt-1 truncate text-xs text-slate-400">
                 {chat.message}
