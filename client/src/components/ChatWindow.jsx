@@ -1,4 +1,3 @@
-
 import { Phone, Video, MoreVertical } from "lucide-react";
 import MessageInput from "./MessageInput";
 
@@ -6,6 +5,7 @@ export default function ChatWindow({
   selectedChat,
   messages,
   onSendMessage,
+  sending = false,
 }) {
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-[#0b1020] text-white">
@@ -23,9 +23,7 @@ export default function ChatWindow({
             <h2 className="font-semibold">{selectedChat.name}</h2>
             <p
               className={`mt-1 text-xs ${
-                selectedChat.online
-                  ? "text-emerald-400"
-                  : "text-slate-400"
+                selectedChat.online ? "text-emerald-400" : "text-slate-400"
               }`}
             >
               {selectedChat.online ? "Online" : "Offline"}
@@ -56,16 +54,12 @@ export default function ChatWindow({
       </header>
 
       <div className="flex-1 space-y-6 overflow-y-auto p-6">
-        <div className="my-4 text-center text-xs text-slate-500">
-          TODAY
-        </div>
+        <div className="my-4 text-center text-xs text-slate-500">TODAY</div>
 
         {messages.map((message) => (
           <div
             key={message.id}
-            className={`flex ${
-              message.mine ? "justify-end" : "justify-start"
-            }`}
+            className={`flex ${message.mine ? "justify-end" : "justify-start"}`}
           >
             <div
               className={`flex max-w-[75%] flex-col ${
@@ -80,9 +74,7 @@ export default function ChatWindow({
                 <span className="font-medium text-slate-300">
                   {message.sender}
                 </span>
-                <span className="text-slate-500">
-                  {message.time}
-                </span>
+                <span className="text-slate-500">{message.time}</span>
               </div>
 
               <div
@@ -99,8 +91,7 @@ export default function ChatWindow({
         ))}
       </div>
 
-      <MessageInput onSend={onSendMessage} />
+      <MessageInput onSend={onSendMessage} disabled={sending} />
     </section>
   );
 }
-

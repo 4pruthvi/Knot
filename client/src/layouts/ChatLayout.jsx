@@ -1,121 +1,228 @@
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
-
-const initialConversations = [
-  {
-    id: 1,
-    name: "Alex Morgan",
-    message: "Nice! The UI is going to look great 🔥",
-    time: "2m",
-    online: true,
-  },
-  {
-    id: 2,
-    name: "Sarah Chen",
-    message: "That looks amazing 🔥",
-    time: "15m",
-    online: true,
-  },
-  {
-    id: 3,
-    name: "Dev Squad",
-    message: "You: pushed the latest code",
-    time: "1h",
-    online: false,
-  },
-  {
-    id: 4,
-    name: "Jordan Lee",
-    message: "You're welcome!",
-    time: "3h",
-    online: false,
-  },
-];
-
-const initialMessages = {
-  1: [
-    { id: 1, sender: "Alex Morgan", text: "Hey! How's the new project going?", time: "10:42 AM", mine: false },
-    { id: 2, sender: "You", text: "Pretty good! I'm building KNOT from scratch.", time: "10:43 AM", mine: true },
-    { id: 3, sender: "Alex Morgan", text: "Nice! The UI is going to look great 🔥", time: "10:43 AM", mine: false },
-  ],
-  2: [
-    { id: 4, sender: "Sarah Chen", text: "Hey! How are you?", time: "10:30 AM", mine: false },
-    { id: 5, sender: "You", text: "I'm good! How about you?", time: "10:31 AM", mine: true },
-    { id: 6, sender: "Sarah Chen", text: "That looks amazing 🔥", time: "10:32 AM", mine: false },
-  ],
-  3: [
-    { id: 7, sender: "Dev Squad", text: "The latest code is ready for review.", time: "9:15 AM", mine: false },
-    { id: 8, sender: "You", text: "You pushed the latest code.", time: "9:20 AM", mine: true },
-  ],
-  4: [
-    { id: 9, sender: "Jordan Lee", text: "Thanks for the help!", time: "8:45 AM", mine: false },
-    { id: 10, sender: "You", text: "You're welcome!", time: "8:46 AM", mine: true },
-  ],
-};
+import {
+  getCurrentUser,
+  getUsers,
+  getMessages,
+  sendMessage,
+} from "../services/api";
 
 export default function ChatLayout() {
-  const [conversations, setConversations] = useState(initialConversations);
-  const [messagesByChat, setMessagesByChat] = useState(initialMessages);
+  const navigate = useNavigate();
 
-  const [selectedChat, setSelectedChat] = useState(initialConversations[0]);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [selectedChat, setSelectedChat] = useState(null);
 
-  function sendMessage(text) {
-    const now = new Date();
-    const messageTime = now.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  const [messages, setMessages] = useState([]);
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
 
-    const newMessage = {
-      id: Date.now(),
-      sender: "You",
-      text,
-      time: messageTime,
-      mine: true,
+  // Load the logged-in user and registered users.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInitialData() {
+      try {
+        const user = await getCurrentUser();
+
+        if (cancelled) return;
+        setCurrentUser(user);
+
+        const registeredUsers = await getUsers();
+
+        if (cancelled) return;
+        setUsers(registeredUsers);
+      } catch (err) {
+        if (cancelled) return;
+
+        console.error("Failed to load account data:", err);
+
+        localStorage.removeItem("token");
+        localStorage.removeItem("user");
+
+        navigate("/login", { replace: true });
+      } finally {
+        if (!cancelled) {
+          setLoadingUser(false);
+        }
+      }
+    }
+
+    loadInitialData();
+
+    return () => {
+      cancelled = true;
     };
+  }, [navigate]);
 
-    setMessagesByChat((previous) => ({
-      ...previous,
-      [selectedChat.id]: [
-        ...(previous[selectedChat.id] || []),
-        newMessage,
-      ],
-    }));
+  // Load conversation history whenever a user is selected.
+  useEffect(() => {
+    if (!selectedChat?._id) {
+      setMessages([]);
+      return;
+    }
 
-    setConversations((previous) =>
-      [
-        ...previous.map((chat) =>
-          chat.id === selectedChat.id
-            ? {
-                ...chat,
-                message: `You: ${text}`,
-                time: "now",
-              }
-            : chat
-        ),
-      ].sort((a, b) => {
-        if (a.id === selectedChat.id) return -1;
-        if (b.id === selectedChat.id) return 1;
-        return 0;
-      })
+    let cancelled = false;
+
+    async function loadMessages() {
+      setLoadingMessages(true);
+      setError("");
+      setMessages([]);
+
+      try {
+        const result = await getMessages(selectedChat._id);
+
+        if (cancelled) return;
+
+        const formattedMessages = result.map((message) => {
+          const isMine =
+            String(message.sender) === String(currentUser?.id);
+
+          return {
+            id: message.id,
+            sender: isMine ? "You" : selectedChat.name,
+            text: message.text,
+            time: new Date(message.createdAt).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            mine: isMine,
+          };
+        });
+
+        setMessages(formattedMessages);
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Failed to load messages:", err);
+          setError(err.message || "Could not load messages.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingMessages(false);
+        }
+      }
+    }
+
+    loadMessages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChat, currentUser]);
+
+  // Save a message in MongoDB before displaying it.
+  async function handleSendMessage(text) {
+    if (!selectedChat?._id || sending) return;
+
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+
+    setSending(true);
+    setError("");
+
+    try {
+      const savedMessage = await sendMessage(
+        selectedChat._id,
+        trimmedText
+      );
+
+      const isMine =
+        String(savedMessage.sender) === String(currentUser?.id);
+
+      const formattedMessage = {
+        id: savedMessage.id,
+        sender: isMine ? "You" : selectedChat.name,
+        text: savedMessage.text,
+        time: new Date(savedMessage.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        mine: isMine,
+      };
+
+      setMessages((previous) => [...previous, formattedMessage]);
+
+      setUsers((previous) =>
+        previous.map((user) =>
+          user._id === selectedChat._id
+            ? { ...user, lastMessage: trimmedText }
+            : user
+        )
+      );
+    } catch (err) {
+      console.error("Failed to send message:", err);
+      setError(err.message || "Could not send message.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (loadingUser || !currentUser) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#0b1020] text-white">
+        <p>Loading your account...</p>
+      </main>
     );
   }
+
+  const conversations = users.map((user) => ({
+    ...user,
+    id: user._id,
+    name: user.name,
+    message: user.lastMessage || "Start a conversation",
+    time: "",
+    online: Boolean(user.isOnline),
+  }));
 
   return (
     <main className="flex h-screen overflow-hidden bg-[#0b1020]">
       <Sidebar
         conversations={conversations}
-        selectedChatId={selectedChat.id}
+        selectedChatId={selectedChat?._id}
         onSelectChat={setSelectedChat}
+        currentUser={currentUser}
       />
 
-      <ChatWindow
-        selectedChat={selectedChat}
-        messages={messagesByChat[selectedChat.id] || []}
-        onSendMessage={sendMessage}
-      />
+      {selectedChat ? (
+        <div className="flex min-w-0 flex-1 flex-col">
+          {error && (
+            <div
+              role="alert"
+              className="bg-red-500/10 px-4 py-2 text-sm text-red-300"
+            >
+              {error}
+            </div>
+          )}
+
+          {loadingMessages ? (
+            <div className="flex flex-1 items-center justify-center text-slate-400">
+              Loading conversation...
+            </div>
+          ) : (
+            <ChatWindow
+              selectedChat={selectedChat}
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              sending={sending}
+            />
+          )}
+        </div>
+      ) : (
+        <section className="flex flex-1 items-center justify-center bg-[#0b1020] text-center text-slate-400">
+          <div>
+            <h2 className="mb-2 text-xl font-semibold text-white">
+              Welcome to KNOT
+            </h2>
+            <p>Select a user from the sidebar to start chatting.</p>
+          </div>
+        </section>
+      )}
     </main>
   );
 }
