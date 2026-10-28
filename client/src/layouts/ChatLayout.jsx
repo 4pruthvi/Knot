@@ -1,8 +1,8 @@
-
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 import ChatWindow from "../components/ChatWindow";
+import { socket } from "../services/socket";
 import {
   getCurrentUser,
   getUsers,
@@ -61,6 +61,87 @@ export default function ChatLayout() {
     };
   }, [navigate]);
 
+  // Connect Socket.IO when the logged-in user is available.
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    function handleConnect() {
+      console.log("Connected to KNOT Socket.IO:", socket.id);
+
+      socket.emit("register_user", String(currentUser.id));
+    }
+
+    function handleDisconnect() {
+      console.log("Disconnected from KNOT Socket.IO");
+    }
+
+    function handleConnectError(err) {
+      console.error("Socket.IO connection error:", err.message);
+    }
+
+    function handleNewMessage(message) {
+      console.log("Real-time message received:", message);
+
+      // Only display messages sent to the logged-in user.
+      if (String(message.receiver) !== String(currentUser.id)) {
+        return;
+      }
+
+      const formattedMessage = {
+        id: message.id,
+        sender:
+          users.find((user) => String(user._id) === String(message.sender))
+            ?.name || "Unknown",
+        text: message.text,
+        time: new Date(message.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        mine: false,
+      };
+
+      // Add the message only if it belongs to the open conversation.
+      setSelectedChat((currentChat) => {
+        if (currentChat && String(currentChat._id) === String(message.sender)) {
+          setMessages((previous) => {
+            if (previous.some((item) => item.id === formattedMessage.id)) {
+              return previous;
+            }
+
+            return [...previous, formattedMessage];
+          });
+        }
+
+        return currentChat;
+      });
+
+      // Update the conversation preview.
+      setUsers((previous) =>
+        previous.map((user) =>
+          String(user._id) === String(message.sender)
+            ? { ...user, lastMessage: message.text }
+            : user,
+        ),
+      );
+    }
+
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+    socket.on("connect_error", handleConnectError);
+    socket.on("new_message", handleNewMessage);
+
+    socket.connect();
+
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("connect_error", handleConnectError);
+      socket.off("new_message", handleNewMessage);
+      socket.disconnect();
+    };
+  }, [currentUser, users]);
+
   // Load conversation history whenever a user is selected.
   useEffect(() => {
     if (!selectedChat?._id) {
@@ -81,8 +162,7 @@ export default function ChatLayout() {
         if (cancelled) return;
 
         const formattedMessages = result.map((message) => {
-          const isMine =
-            String(message.sender) === String(currentUser?.id);
+          const isMine = String(message.sender) === String(currentUser?.id);
 
           return {
             id: message.id,
@@ -127,13 +207,9 @@ export default function ChatLayout() {
     setError("");
 
     try {
-      const savedMessage = await sendMessage(
-        selectedChat._id,
-        trimmedText
-      );
+      const savedMessage = await sendMessage(selectedChat._id, trimmedText);
 
-      const isMine =
-        String(savedMessage.sender) === String(currentUser?.id);
+      const isMine = String(savedMessage.sender) === String(currentUser?.id);
 
       const formattedMessage = {
         id: savedMessage.id,
@@ -152,8 +228,8 @@ export default function ChatLayout() {
         previous.map((user) =>
           user._id === selectedChat._id
             ? { ...user, lastMessage: trimmedText }
-            : user
-        )
+            : user,
+        ),
       );
     } catch (err) {
       console.error("Failed to send message:", err);
@@ -184,7 +260,7 @@ export default function ChatLayout() {
     <main className="flex h-screen overflow-hidden bg-[#0b1020]">
       <Sidebar
         conversations={conversations}
-        selectedChatId={selectedChat?._id}
+        selectedChatId={selectedChat?.id}
         onSelectChat={setSelectedChat}
         currentUser={currentUser}
       />
