@@ -5,9 +5,7 @@ const API_URL = "http://localhost:5000/api";
 export async function registerUser(userData) {
   const response = await fetch(`${API_URL}/auth/register`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(userData),
   });
 
@@ -24,9 +22,7 @@ export async function registerUser(userData) {
 export async function loginUser(credentials) {
   const response = await fetch(`${API_URL}/auth/login`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(credentials),
   });
 
@@ -44,7 +40,6 @@ export async function getCurrentUser() {
   const token = localStorage.getItem("token");
 
   const response = await fetch(`${API_URL}/users/me`, {
-    method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -59,12 +54,11 @@ export async function getCurrentUser() {
   return data.user;
 }
 
-// Get all registered users except the logged-in user
+// Get all registered users
 export async function getUsers() {
   const token = localStorage.getItem("token");
 
   const response = await fetch(`${API_URL}/users`, {
-    method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -79,7 +73,7 @@ export async function getUsers() {
   return data.users;
 }
 
-// Send a message to another user
+// Send a message
 export async function sendMessage(receiverId, text) {
   const token = localStorage.getItem("token");
 
@@ -89,10 +83,7 @@ export async function sendMessage(receiverId, text) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({
-      receiverId,
-      text,
-    }),
+    body: JSON.stringify({ receiverId, text }),
   });
 
   const data = await response.json();
@@ -104,12 +95,11 @@ export async function sendMessage(receiverId, text) {
   return data.message;
 }
 
-// Get message history with another user
+// Get message history
 export async function getMessages(userId) {
   const token = localStorage.getItem("token");
 
   const response = await fetch(`${API_URL}/messages/${userId}`, {
-    method: "GET",
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -122,4 +112,131 @@ export async function getMessages(userId) {
   }
 
   return data.messages;
+}
+
+// Get unread message counts
+export async function getUnreadCounts() {
+  const token = localStorage.getItem("token");
+
+  const response = await fetch(`${API_URL}/messages/unread-counts`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to fetch unread counts");
+  }
+
+  return data.unreadCounts;
+}
+
+// Mark messages as read
+export async function markMessagesRead(userId) {
+  const token = localStorage.getItem("token");
+
+  const response = await fetch(`${API_URL}/messages/${userId}/read`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to mark messages as read");
+  }
+
+  return data;
+}
+
+// Edit a message
+export async function editMessage(messageId, text) {
+  const token = localStorage.getItem("token");
+
+  const response = await fetch(`${API_URL}/messages/${messageId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ text }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to edit message");
+  }
+
+  return data.updatedMessage;
+}
+
+// Delete a message for everyone
+export async function deleteMessageForEveryone(messageId) {
+  const token = localStorage.getItem("token");
+
+  const response = await fetch(
+    `${API_URL}/messages/${messageId}/everyone`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to delete message");
+  }
+
+  return data.deletedMessage;
+}
+
+// Delete a message only for the current user
+export async function deleteMessageForMe(messageId) {
+  const token = localStorage.getItem("token");
+
+  const response = await fetch(
+    `${API_URL}/messages/${messageId}/me`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to delete message");
+  }
+
+  return data.deletedMessage;
+}
+
+// Update current user's profile.
+export async function updateProfile(profileData) {
+  const response = await fetch(`${API_URL}/users/me`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+    body: JSON.stringify(profileData),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to update profile.");
+  }
+
+  return data.user;
 }
