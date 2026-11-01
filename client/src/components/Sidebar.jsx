@@ -1,16 +1,17 @@
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Search,
   Plus,
-  MessageCircle,
   Pencil,
   X,
   Save,
   User,
+  Camera,
+  Upload,
 } from "lucide-react";
 
-import { updateProfile } from "../services/api";
+import { updateProfile, uploadAvatar } from "../services/api";
 
 export default function Sidebar({
   conversations,
@@ -25,7 +26,12 @@ export default function Sidebar({
   const [name, setName] = useState(currentUser?.name || "");
   const [avatar, setAvatar] = useState(currentUser?.avatar || "");
 
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const fileInputRef = useRef(null);
+
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -41,6 +47,15 @@ export default function Sidebar({
     .slice(0, 2)
     .toUpperCase();
 
+  // Revoke temporary preview URLs to avoid memory leaks.
+  useEffect(() => {
+    return () => {
+      if (previewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
   // Filter conversations.
   const filteredConversations = conversations.filter((chat) =>
     chat.name.toLowerCase().includes(search.toLowerCase().trim())
@@ -50,12 +65,83 @@ export default function Sidebar({
   function openProfileEditor() {
     setName(userName);
     setAvatar(userAvatar);
+    setSelectedFile(null);
+    setPreviewUrl("");
     setError("");
     setSuccess("");
     setShowProfile(true);
   }
 
-  // Save profile changes.
+  // Close profile editor.
+  function closeProfileEditor() {
+    if (saving || uploadingAvatar) return;
+
+    setShowProfile(false);
+    setSelectedFile(null);
+    setPreviewUrl("");
+    setError("");
+    setSuccess("");
+  }
+
+  // Select and validate an image.
+  function handleAvatarSelect(event) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    setError("");
+    setSuccess("");
+
+    if (!file.type.startsWith("image/")) {
+      setError("Please select a valid image file.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Image size must be less than 5 MB.");
+      event.target.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
+  }
+
+  // Upload profile picture to Cloudinary.
+  async function handleAvatarUpload() {
+    if (!selectedFile) {
+      setError("Please select an image first.");
+      return;
+    }
+
+    setUploadingAvatar(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const updatedUser = await uploadAvatar(selectedFile);
+
+      setAvatar(updatedUser.avatar || "");
+      onProfileUpdated?.(updatedUser);
+
+      setSelectedFile(null);
+      setPreviewUrl("");
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      setSuccess("Profile picture uploaded successfully.");
+    } catch (err) {
+      console.error("Avatar upload error:", err);
+      setError(err.message || "Failed to upload profile picture.");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  // Save profile name.
   async function handleProfileSave(event) {
     event.preventDefault();
 
@@ -71,7 +157,6 @@ export default function Sidebar({
     try {
       const updatedUser = await updateProfile({
         name: name.trim(),
-        avatar: avatar.trim(),
       });
 
       onProfileUpdated?.(updatedUser);
@@ -275,32 +360,70 @@ export default function Sidebar({
 
               <button
                 type="button"
-                onClick={() => setShowProfile(false)}
-                disabled={saving}
-                className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"
+                onClick={closeProfileEditor}
+                disabled={saving || uploadingAvatar}
+                className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white disabled:opacity-50"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleProfileSave} className="space-y-4">
+            <form onSubmit={handleProfileSave} className="space-y-5">
 
               {/* Avatar preview */}
-              <div className="flex justify-center">
-                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-violet-500/20 text-2xl font-semibold text-violet-300">
-                  {avatar ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-2 border-violet-400/50 bg-violet-500/20 text-2xl font-semibold text-violet-300">
+                  {previewUrl || avatar ? (
                     <img
-                      src={avatar}
+                      src={previewUrl || avatar}
                       alt="Profile preview"
                       className="h-full w-full object-cover"
-                      onError={(event) => {
-                        event.currentTarget.style.display = "none";
-                      }}
                     />
                   ) : (
-                    <User size={32} />
+                    <User size={36} />
                   )}
                 </div>
+
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarSelect}
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingAvatar}
+                  className="flex items-center gap-2 rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 transition hover:bg-white/5 disabled:opacity-50"
+                >
+                  <Camera size={16} />
+                  Choose Image
+                </button>
+
+                <p className="text-xs text-slate-500">
+                  JPG, PNG or other image formats. Maximum 5 MB.
+                </p>
+
+                {selectedFile && (
+                  <div className="w-full space-y-2">
+                    <p className="truncate text-center text-xs text-slate-400">
+                      Selected: {selectedFile.name}
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={handleAvatarUpload}
+                      disabled={uploadingAvatar}
+                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-violet-600 disabled:opacity-50"
+                    >
+                      <Upload size={16} />
+                      {uploadingAvatar ? "Uploading..." : "Upload Photo"}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Name */}
@@ -319,25 +442,7 @@ export default function Sidebar({
                 />
               </div>
 
-              {/* Avatar URL */}
-              <div>
-                <label className="mb-2 block text-sm text-slate-300">
-                  Profile Picture URL
-                </label>
-
-                <input
-                  type="url"
-                  value={avatar}
-                  onChange={(event) => setAvatar(event.target.value)}
-                  placeholder="https://example.com/photo.jpg"
-                  className="w-full rounded-xl border border-white/10 bg-[#0b1020] px-4 py-3 text-sm text-white outline-none focus:border-violet-400"
-                />
-
-                <p className="mt-2 text-xs text-slate-500">
-                  Enter a publicly accessible image URL.
-                </p>
-              </div>
-
+              {/* Error and success messages */}
               {error && (
                 <p className="text-sm text-red-400">{error}</p>
               )}
@@ -350,16 +455,16 @@ export default function Sidebar({
               <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowProfile(false)}
-                  disabled={saving}
-                  className="rounded-xl px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5"
+                  onClick={closeProfileEditor}
+                  disabled={saving || uploadingAvatar}
+                  className="rounded-xl px-4 py-2.5 text-sm text-slate-300 hover:bg-white/5 disabled:opacity-50"
                 >
                   Cancel
                 </button>
 
                 <button
                   type="submit"
-                  disabled={saving || !name.trim()}
+                  disabled={saving || uploadingAvatar || !name.trim()}
                   className="flex items-center gap-2 rounded-xl bg-violet-500 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-violet-600 disabled:opacity-50"
                 >
                   <Save size={16} />
