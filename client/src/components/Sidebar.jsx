@@ -12,6 +12,7 @@ import {
   Sun,
   Moon,
   MessageCircle,
+  LogOut,
 } from "lucide-react";
 
 import { updateProfile, uploadAvatar } from "../services/api";
@@ -24,6 +25,7 @@ export default function Sidebar({
   onProfileUpdated,
   theme = "dark",
   onToggleTheme,
+  onLogout,
 }) {
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
@@ -118,6 +120,16 @@ export default function Sidebar({
     setActiveFilter("all");
     setSearch("");
     searchInputRef.current?.focus();
+  }
+
+  function handleLogout() {
+    const confirmed = window.confirm(
+      "Are you sure you want to log out of KNOT?"
+    );
+
+    if (confirmed) {
+      onLogout?.();
+    }
   }
 
   function openProfileEditor() {
@@ -525,7 +537,7 @@ export default function Sidebar({
         })}
       </div>
 
-      {/* LOGGED-IN USER PROFILE */}
+      {/* LOGGED-IN USER PROFILE AND LOGOUT */}
       <div
         className={`border-t p-3 ${
           isDark ? "border-white/10" : "border-[#e8e4fa]"
@@ -578,6 +590,20 @@ export default function Sidebar({
               isDark ? "text-slate-400" : "text-[#777797]"
             }`}
           />
+        </button>
+
+        {/* LOGOUT BUTTON */}
+        <button
+          type="button"
+          onClick={handleLogout}
+          className={`mt-2 flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition ${
+            isDark
+              ? "border-red-400/20 text-red-300 hover:bg-red-500/10"
+              : "border-red-200 text-red-600 hover:bg-red-50"
+          }`}
+        >
+          <LogOut size={16} />
+          Logout
         </button>
       </div>
 

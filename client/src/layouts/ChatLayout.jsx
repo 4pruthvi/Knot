@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -64,6 +65,34 @@ export default function ChatLayout() {
   useEffect(() => {
     selectedChatRef.current = selectedChat;
   }, [selectedChat]);
+
+  // LOGOUT
+  function handleLogout() {
+    // Stop any pending typing timer.
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+
+    // Disconnect Socket.IO.
+    socket.disconnect();
+
+    // Clear authentication data.
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+
+    // Clear current application state.
+    setCurrentUser(null);
+    setUsers([]);
+    setSelectedChat(null);
+    setMessages([]);
+    setOnlineUserIds([]);
+    setTypingUserId(null);
+    setUnreadCounts({});
+
+    // Redirect to login.
+    navigate("/login", { replace: true });
+  }
 
   // Load initial account data.
   useEffect(() => {
@@ -482,7 +511,7 @@ export default function ChatLayout() {
     }));
   }
 
-  // Return to the conversation list on mobile.
+  // Return to conversation list on mobile.
   function handleBackToSidebar() {
     const previousChat = selectedChatRef.current;
 
@@ -625,7 +654,7 @@ export default function ChatLayout() {
     }
   }
 
-  // Forward an existing message to another user.
+  // Forward an existing message.
   async function handleForwardMessage(messageId, receiverId) {
     try {
       setError("");
@@ -799,6 +828,7 @@ export default function ChatLayout() {
           onProfileUpdated={setCurrentUser}
           theme={theme}
           onToggleTheme={handleToggleTheme}
+          onLogout={handleLogout}
         />
       </div>
 
@@ -864,7 +894,6 @@ export default function ChatLayout() {
               backgroundPosition: "center",
             }}
           >
-            {/* Theme overlay */}
             <div
               className={`absolute inset-0 ${
                 isDark ? "bg-[#080b20]/25" : "bg-white/10"
