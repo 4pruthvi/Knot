@@ -1,3 +1,4 @@
+
 import express from "express";
 import mongoose from "mongoose";
 import verifyToken from "../middleware/auth.middleware.js";
@@ -12,11 +13,9 @@ const createMessageRouter = (io) => {
   // Configure file upload using memory storage.
   const upload = multer({
     storage: multer.memoryStorage(),
-
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10 MB
+      fileSize: 10 * 1024 * 1024,
     },
-
     fileFilter: (req, file, callback) => {
       const allowedTypes = [
         "image/jpeg",
@@ -66,7 +65,7 @@ const createMessageRouter = (io) => {
   }
 
   // POST /api/messages
-  // Send a new message.
+  // Send a new text message.
   router.post("/", verifyToken, async (req, res) => {
     try {
       const { receiverId, text } = req.body;
@@ -113,11 +112,13 @@ const createMessageRouter = (io) => {
         sender: String(message.sender),
         receiver: String(message.receiver),
         text: message.text,
+        attachment: message.attachment || null,
         status: message.status,
         deliveredAt: message.deliveredAt,
         readAt: message.readAt,
         createdAt: message.createdAt,
         isEdited: false,
+        isForwarded: Boolean(message.isForwarded),
         deletedForEveryone: false,
       };
 
@@ -157,7 +158,6 @@ const createMessageRouter = (io) => {
       const senderId = String(req.userId);
       const file = req.file;
 
-      // Validate receiver ID.
       if (!mongoose.isValidObjectId(receiverId)) {
         return res.status(400).json({
           success: false,
@@ -172,7 +172,6 @@ const createMessageRouter = (io) => {
         });
       }
 
-      // Validate receiver.
       const receiver = await User.findById(receiverId);
 
       if (!receiver) {
@@ -182,7 +181,6 @@ const createMessageRouter = (io) => {
         });
       }
 
-      // A file is required for this endpoint.
       if (!file) {
         return res.status(400).json({
           success: false,
@@ -190,7 +188,6 @@ const createMessageRouter = (io) => {
         });
       }
 
-      // Validate optional caption.
       if (typeof text !== "string" || text.length > 5000) {
         return res.status(400).json({
           success: false,
@@ -211,23 +208,20 @@ const createMessageRouter = (io) => {
             } else {
               resolve(result);
             }
-          },
+          }
         );
 
         stream.end(file.buffer);
       });
 
-      // Determine attachment type.
       const attachmentType = file.mimetype.startsWith("image/")
         ? "image"
         : "file";
 
-      // Save message in MongoDB.
       const message = await Message.create({
         sender: senderId,
         receiver: receiverId,
         text: text.trim(),
-
         attachment: {
           url: cloudinaryResult.secure_url,
           publicId: cloudinaryResult.public_id,
@@ -238,7 +232,6 @@ const createMessageRouter = (io) => {
         },
       });
 
-      // Prepare message data for frontend.
       const messageData = {
         id: String(message._id),
         sender: String(message.sender),
@@ -250,13 +243,12 @@ const createMessageRouter = (io) => {
         readAt: message.readAt,
         createdAt: message.createdAt,
         isEdited: false,
+        isForwarded: Boolean(message.isForwarded),
         deletedForEveryone: false,
       };
 
-      // Notify receiver through Socket.IO.
       io.to(String(receiverId)).emit("new_message", messageData);
 
-      // Update unread count.
       const unreadCount = await Message.countDocuments({
         sender: senderId,
         receiver: receiverId,
@@ -279,6 +271,158 @@ const createMessageRouter = (io) => {
       return res.status(500).json({
         success: false,
         message: "Failed to upload attachment.",
+      });
+    }
+  });
+
+  // POST /api/messages/forward
+  // Forward an existing text message or attachment.
+  router.post("/forward", verifyToken, async (req, res) => {
+    try {
+      const currentUserId = String(req.userId);
+      const { messageId, receiverId } = req.body;
+
+      if (!mongoose.isValidObjectId(messageId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid message ID.",
+        });
+      }
+
+      if (!mongoose.isValidObjectId(receiverId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid receiver ID.",
+        });
+      }
+
+      if (currentUserId === String(receiverId)) {
+        return res.status(400).json({
+          success: false,
+          message: "You cannot forward a message to yourself.",
+        });
+      }
+
+      // Find the original message.
+      const originalMessage = await findMessage(messageId);
+
+      if (!originalMessage) {
+        return res.status(404).json({
+          success: false,
+          message: "Original message not found.",
+        });
+      }
+
+      // Only conversation participants can forward.
+      const isParticipant =
+        String(originalMessage.sender) === currentUserId ||
+        String(originalMessage.receiver) === currentUserId;
+
+      if (!isParticipant) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not allowed to forward this message.",
+        });
+      }
+
+      if (originalMessage.deletedForEveryone) {
+        return res.status(400).json({
+          success: false,
+          message: "Deleted messages cannot be forwarded.",
+        });
+      }
+
+      const hiddenForCurrentUser = originalMessage.deletedFor.some(
+        (id) => String(id) === currentUserId
+      );
+
+      if (hiddenForCurrentUser) {
+        return res.status(404).json({
+          success: false,
+          message: "Original message not found.",
+        });
+      }
+
+      const receiver = await User.findById(receiverId);
+
+      if (!receiver) {
+        return res.status(404).json({
+          success: false,
+          message: "Receiver not found.",
+        });
+      }
+
+      const forwardedText = originalMessage.text || "";
+
+      const forwardedAttachment = originalMessage.attachment?.url
+        ? {
+            url: originalMessage.attachment.url,
+            publicId: originalMessage.attachment.publicId || null,
+            filename: originalMessage.attachment.filename || null,
+            mimeType: originalMessage.attachment.mimeType || null,
+            size: originalMessage.attachment.size || null,
+            type: originalMessage.attachment.type || "file",
+          }
+        : null;
+
+      if (!forwardedText.trim() && !forwardedAttachment) {
+        return res.status(400).json({
+          success: false,
+          message: "This message has no content to forward.",
+        });
+      }
+
+      // Create a separate message.
+      // Original message remains unchanged.
+      const forwardedMessage = await Message.create({
+        sender: currentUserId,
+        receiver: String(receiverId),
+        text: forwardedText,
+        attachment: forwardedAttachment || undefined,
+        isForwarded: true,
+      });
+
+      const messageData = {
+        id: String(forwardedMessage._id),
+        sender: String(forwardedMessage.sender),
+        receiver: String(forwardedMessage.receiver),
+        text: forwardedMessage.text || "",
+        attachment: forwardedMessage.attachment || null,
+        status: forwardedMessage.status || "sent",
+        deliveredAt: forwardedMessage.deliveredAt || null,
+        readAt: forwardedMessage.readAt || null,
+        createdAt: forwardedMessage.createdAt,
+        isEdited: false,
+        isForwarded: true,
+        deletedForEveryone: false,
+      };
+
+      // Real-time delivery.
+      io.to(String(receiverId)).emit("new_message", messageData);
+
+      // Update unread count.
+      const unreadCount = await Message.countDocuments({
+        sender: currentUserId,
+        receiver: String(receiverId),
+        status: { $ne: "read" },
+        deletedForEveryone: false,
+      });
+
+      io.to(String(receiverId)).emit("unread_count_update", {
+        senderId: currentUserId,
+        count: unreadCount,
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: messageData,
+      });
+    } catch (error) {
+      console.error("Forward message error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to forward message.",
       });
     }
   });
@@ -388,6 +532,7 @@ const createMessageRouter = (io) => {
 
       message.deletedForEveryone = true;
       message.text = "This message was deleted";
+
       await message.save();
 
       const deleteData = {
@@ -448,7 +593,7 @@ const createMessageRouter = (io) => {
       }
 
       const alreadyDeleted = message.deletedFor.some(
-        (id) => String(id) === currentUserId,
+        (id) => String(id) === currentUserId
       );
 
       if (!alreadyDeleted) {
@@ -566,7 +711,7 @@ const createMessageRouter = (io) => {
             status: "read",
             readAt,
           },
-        },
+        }
       );
 
       io.to(otherUserId).emit("messages_read", {
@@ -637,7 +782,9 @@ const createMessageRouter = (io) => {
           },
         ],
         deletedForEveryone: { $ne: true },
-        deletedFor: { $ne: new mongoose.Types.ObjectId(currentUserId) },
+        deletedFor: {
+          $ne: new mongoose.Types.ObjectId(currentUserId),
+        },
       })
         .sort({ createdAt: 1 })
         .lean();
@@ -655,6 +802,7 @@ const createMessageRouter = (io) => {
           readAt: message.readAt || null,
           createdAt: message.createdAt,
           isEdited: Boolean(message.isEdited),
+          isForwarded: Boolean(message.isForwarded),
           deletedForEveryone: Boolean(message.deletedForEveryone),
         })),
       });

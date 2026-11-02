@@ -5,7 +5,6 @@ import {
   Send,
   X,
   FileText,
-  Image as ImageIcon,
 } from "lucide-react";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -31,6 +30,7 @@ export default function MessageInput({
   onSendAttachment,
   onTypingChange,
   disabled = false,
+  theme = "dark",
 }) {
   const [message, setMessage] = useState("");
   const [selectedFile, setSelectedFile] = useState(null);
@@ -41,7 +41,33 @@ export default function MessageInput({
   const typingTimer = useRef(null);
   const fileInputRef = useRef(null);
 
-  // Clean up temporary image preview.
+  const isDark = theme === "dark";
+
+  const panelStyle = isDark
+    ? "border-white/10 bg-[#0b1020]"
+    : "border-[#e8e4f5] bg-white";
+
+  const inputStyle = isDark
+    ? "border-white/10 bg-[#191e30] text-white placeholder:text-slate-500 focus:border-violet-500/60"
+    : "border-[#e5e0f5] bg-[#f2effc] text-[#242447] placeholder:text-[#8989a8] focus:border-violet-400";
+
+  const mutedStyle = isDark
+    ? "text-slate-400 hover:bg-white/10 hover:text-white"
+    : "text-[#777797] hover:bg-violet-100 hover:text-violet-700";
+
+  const previewStyle = isDark
+    ? "border-white/10 bg-white/5"
+    : "border-[#e8e3f6] bg-[#f6f3ff]";
+
+  const previewText = isDark
+    ? "text-white"
+    : "text-[#29294d]";
+
+  const previewMuted = isDark
+    ? "text-slate-400"
+    : "text-[#8585a3]";
+
+  // Clean up temporary image previews.
   useEffect(() => {
     return () => {
       if (previewUrl.startsWith("blob:")) {
@@ -50,9 +76,18 @@ export default function MessageInput({
     };
   }, [previewUrl]);
 
-  // Format file size.
+  // Clear typing timer when component unmounts.
+  useEffect(() => {
+    return () => {
+      if (typingTimer.current) {
+        clearTimeout(typingTimer.current);
+      }
+    };
+  }, []);
+
   function formatFileSize(bytes) {
     if (bytes < 1024) return `${bytes} B`;
+
     if (bytes < 1024 * 1024) {
       return `${(bytes / 1024).toFixed(1)} KB`;
     }
@@ -60,7 +95,6 @@ export default function MessageInput({
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
-  // Handle text changes and typing indicator.
   function handleChange(event) {
     const value = event.target.value;
 
@@ -81,7 +115,6 @@ export default function MessageInput({
     }
   }
 
-  // Select an attachment.
   function handleFileSelect(event) {
     const file = event.target.files?.[0];
 
@@ -110,7 +143,6 @@ export default function MessageInput({
     }
   }
 
-  // Remove selected attachment.
   function handleRemoveFile() {
     setSelectedFile(null);
     setPreviewUrl("");
@@ -121,7 +153,6 @@ export default function MessageInput({
     }
   }
 
-  // Send text or attachment.
   async function handleSubmit(event) {
     event.preventDefault();
 
@@ -133,11 +164,11 @@ export default function MessageInput({
 
     if (typingTimer.current) {
       clearTimeout(typingTimer.current);
+      typingTimer.current = null;
     }
 
     onTypingChange?.(false);
 
-    // Send attachment with optional caption.
     if (selectedFile) {
       if (!onSendAttachment) {
         setError("Attachment sending is not configured yet.");
@@ -166,7 +197,6 @@ export default function MessageInput({
       return;
     }
 
-    // Send normal text message.
     onSend(trimmedMessage);
     setMessage("");
   }
@@ -176,30 +206,31 @@ export default function MessageInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="border-t border-white/10 bg-[#0b1020] p-4"
+      className={`border-t p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] transition-colors duration-300 sm:p-4 ${panelStyle}`}
     >
       {/* Selected attachment preview */}
       {selectedFile && (
-        <div className="mb-3 flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
-
+        <div
+          className={`mb-2 flex min-w-0 items-center gap-2 rounded-xl border p-2 sm:mb-3 sm:gap-3 sm:p-3 ${previewStyle}`}
+        >
           {isImage && previewUrl ? (
             <img
               src={previewUrl}
               alt="Selected attachment"
-              className="h-16 w-16 rounded-lg object-cover"
+              className="h-12 w-12 shrink-0 rounded-lg object-cover sm:h-16 sm:w-16"
             />
           ) : (
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-300">
-              <FileText size={24} />
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-500 sm:h-12 sm:w-12">
+              <FileText size={22} />
             </div>
           )}
 
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-white">
+            <p className={`truncate text-xs font-medium sm:text-sm ${previewText}`}>
               {selectedFile.name}
             </p>
 
-            <p className="mt-1 text-xs text-slate-400">
+            <p className={`mt-1 text-[11px] sm:text-xs ${previewMuted}`}>
               {formatFileSize(selectedFile.size)}
             </p>
           </div>
@@ -209,7 +240,7 @@ export default function MessageInput({
             onClick={handleRemoveFile}
             disabled={uploading}
             aria-label="Remove attachment"
-            className="rounded-lg p-2 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition disabled:opacity-40 ${mutedStyle}`}
           >
             <X size={18} />
           </button>
@@ -218,14 +249,13 @@ export default function MessageInput({
 
       {/* Error message */}
       {error && (
-        <p className="mb-3 text-xs text-red-400">
+        <p className="mb-2 px-1 text-xs text-red-500 sm:mb-3">
           {error}
         </p>
       )}
 
-      <div className="flex items-center gap-3">
-
-        {/* Hidden file input */}
+      {/* Input controls */}
+      <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
         <input
           ref={fileInputRef}
           type="file"
@@ -240,20 +270,21 @@ export default function MessageInput({
           aria-label="Attach a file"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled || uploading || Boolean(selectedFile)}
-          className="rounded-xl p-2.5 text-slate-400 transition hover:bg-white/5 hover:text-white disabled:opacity-40"
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl transition disabled:opacity-40 sm:h-12 sm:w-12 ${mutedStyle}`}
         >
-          <Paperclip size={20} />
+          <Paperclip size={21} />
         </button>
 
         {/* Message input */}
         <input
+          type="text"
           value={message}
           onChange={handleChange}
           placeholder={
             selectedFile ? "Add a caption..." : "Message..."
           }
           disabled={disabled || uploading}
-          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-500/60 disabled:opacity-50"
+          className={`h-11 min-w-0 flex-1 rounded-xl border px-3 text-base outline-none transition disabled:opacity-50 sm:h-12 sm:px-4 sm:text-sm ${inputStyle}`}
         />
 
         {/* Send button */}
@@ -265,18 +296,19 @@ export default function MessageInput({
             uploading
           }
           aria-label="Send message"
-          className="rounded-xl bg-violet-500 p-3 text-white transition hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-r from-[#7435f1] to-[#9229ed] text-white shadow-md shadow-violet-500/15 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 sm:h-12 sm:w-12"
         >
           {uploading ? (
             <span className="block h-[18px] w-[18px] animate-spin rounded-full border-2 border-white/30 border-t-white" />
           ) : (
-            <Send size={18} />
+            <Send size={19} />
           )}
         </button>
       </div>
 
+      {/* Upload status */}
       {uploading && (
-        <p className="mt-2 text-center text-xs text-violet-300">
+        <p className="mt-2 text-center text-xs text-violet-500">
           Uploading attachment...
         </p>
       )}

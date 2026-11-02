@@ -221,7 +221,7 @@ export async function deleteMessageForMe(messageId) {
   return data.deletedMessage;
 }
 
-// Update current user's profile.
+// Update current user's profile
 export async function updateProfile(profileData) {
   const response = await fetch(`${API_URL}/users/me`, {
     method: "PATCH",
@@ -265,9 +265,7 @@ export async function uploadAvatar(imageFile) {
   return data.user;
 }
 
-
-
-// Upload an image or file as a chat message.
+// Upload an image or file as a chat message
 export async function uploadMessageAttachment(receiverId, file, text = "") {
   const token = localStorage.getItem("token");
 
@@ -289,6 +287,31 @@ export async function uploadMessageAttachment(receiverId, file, text = "") {
 
   if (!response.ok) {
     throw new Error(data.message || "Failed to upload attachment");
+  }
+
+  return data.message;
+}
+
+// Forward an existing message to another user
+export async function forwardMessage(messageId, receiverId) {
+  const token = localStorage.getItem("token");
+
+  const response = await fetch(`${API_URL}/messages/forward`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      messageId,
+      receiverId,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to forward message");
   }
 
   return data.message;

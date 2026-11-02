@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -17,6 +16,7 @@ import {
   editMessage,
   deleteMessageForEveryone,
   deleteMessageForMe,
+  forwardMessage,
 } from "../services/api";
 
 export default function ChatLayout() {
@@ -35,6 +35,23 @@ export default function ChatLayout() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+
+  // Shared dark/light theme.
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem("knot-theme") || "dark";
+  });
+
+  function handleToggleTheme() {
+    setTheme((previousTheme) => {
+      const nextTheme =
+        previousTheme === "dark" ? "light" : "dark";
+
+      localStorage.setItem("knot-theme", nextTheme);
+      return nextTheme;
+    });
+  }
+
+  const isDark = theme === "dark";
 
   const usersRef = useRef([]);
   const selectedChatRef = useRef(null);
@@ -174,6 +191,7 @@ export default function ChatLayout() {
         mine: false,
         status: message.status || "sent",
         isEdited: message.isEdited || false,
+        isForwarded: Boolean(message.isForwarded),
       };
 
       if (openChat && String(openChat._id) === senderId) {
@@ -388,6 +406,7 @@ export default function ChatLayout() {
             mine: isMine,
             status: message.status || "sent",
             isEdited: message.isEdited || false,
+            isForwarded: Boolean(message.isForwarded),
           };
         });
 
@@ -463,6 +482,25 @@ export default function ChatLayout() {
     }));
   }
 
+  // Return to the conversation list on mobile.
+  function handleBackToSidebar() {
+    const previousChat = selectedChatRef.current;
+
+    if (previousChat?._id && socket.connected) {
+      socket.emit("stop_typing", String(previousChat._id));
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+
+    selectedChatRef.current = null;
+    setSelectedChat(null);
+    setMessages([]);
+    setTypingUserId(null);
+  }
+
   // Typing events.
   function handleTypingChange(isTyping) {
     if (!selectedChat?._id || !socket.connected) return;
@@ -503,6 +541,7 @@ export default function ChatLayout() {
         mine: true,
         status: savedMessage.status || "sent",
         isEdited: false,
+        isForwarded: Boolean(savedMessage.isForwarded),
       };
 
       setMessages((previous) => {
@@ -556,6 +595,7 @@ export default function ChatLayout() {
         mine: true,
         status: savedMessage.status || "sent",
         isEdited: false,
+        isForwarded: Boolean(savedMessage.isForwarded),
       };
 
       setMessages((previous) => {
@@ -582,6 +622,64 @@ export default function ChatLayout() {
       throw err;
     } finally {
       setSending(false);
+    }
+  }
+
+  // Forward an existing message to another user.
+  async function handleForwardMessage(messageId, receiverId) {
+    try {
+      setError("");
+
+      const forwardedMessage = await forwardMessage(messageId, receiverId);
+
+      const formattedMessage = {
+        id: forwardedMessage.id,
+        sender: "You",
+        senderId: String(currentUser.id),
+        receiver: String(receiverId),
+        text: forwardedMessage.text || "",
+        attachment: forwardedMessage.attachment || null,
+        time: new Date(forwardedMessage.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        mine: true,
+        status: forwardedMessage.status || "sent",
+        isEdited: Boolean(forwardedMessage.isEdited),
+        isForwarded: Boolean(forwardedMessage.isForwarded),
+      };
+
+      if (String(selectedChatRef.current?._id) === String(receiverId)) {
+        setMessages((previous) => {
+          if (
+            previous.some(
+              (item) => String(item.id) === String(formattedMessage.id)
+            )
+          ) {
+            return previous;
+          }
+
+          return [...previous, formattedMessage];
+        });
+      }
+
+      const lastMessageText = forwardedMessage.attachment
+        ? `📎 ${forwardedMessage.attachment.filename || "Attachment"}`
+        : forwardedMessage.text || "Forwarded message";
+
+      setUsers((previous) =>
+        previous.map((user) =>
+          String(user._id) === String(receiverId)
+            ? { ...user, lastMessage: lastMessageText }
+            : user
+        )
+      );
+
+      return formattedMessage;
+    } catch (err) {
+      console.error("Failed to forward message:", err);
+      setError(err.message || "Could not forward message.");
+      throw err;
     }
   }
 
@@ -650,7 +748,11 @@ export default function ChatLayout() {
 
   if (loadingUser || !currentUser) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#0b1020] text-white">
+      <main
+        className={`flex min-h-screen items-center justify-center ${
+          isDark ? "bg-[#0b1020] text-white" : "bg-[#fbfaff] text-slate-800"
+        }`}
+      >
         <p>Loading your account...</p>
       </main>
     );
@@ -678,59 +780,117 @@ export default function ChatLayout() {
   );
 
   return (
-    <main className="flex h-screen overflow-hidden bg-[#0b1020]">
-      <Sidebar
-        conversations={conversations}
-        selectedChatId={selectedChat?.id}
-        onSelectChat={handleSelectChat}
-        currentUser={currentUser}
-        onProfileUpdated={setCurrentUser}
-      />
+    <main
+      className={`flex h-screen h-[100dvh] w-full overflow-hidden transition-colors duration-300 ${
+        isDark ? "bg-[#0b1020]" : "bg-[#fbfaff]"
+      }`}
+    >
+      {/* Sidebar */}
+      <div
+        className={`h-full w-full shrink-0 md:flex md:w-80 ${
+          selectedChat ? "hidden" : "flex"
+        }`}
+      >
+        <Sidebar
+          conversations={conversations}
+          selectedChatId={selectedChat?.id}
+          onSelectChat={handleSelectChat}
+          currentUser={currentUser}
+          onProfileUpdated={setCurrentUser}
+          theme={theme}
+          onToggleTheme={handleToggleTheme}
+        />
+      </div>
 
-      {selectedChat ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          {error && (
+      {/* Chat area */}
+      <div
+        className={`h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
+          selectedChat ? "flex" : "hidden md:flex"
+        }`}
+      >
+        {selectedChat ? (
+          <>
+            {error && (
+              <div
+                role="alert"
+                className="shrink-0 bg-red-500/10 px-4 py-2 text-sm text-red-300"
+              >
+                {error}
+              </div>
+            )}
+
+            {loadingMessages ? (
+              <div
+                className={`flex flex-1 items-center justify-center ${
+                  isDark ? "text-slate-400" : "text-slate-500"
+                }`}
+              >
+                Loading conversation...
+              </div>
+            ) : (
+              <ChatWindow
+                selectedChat={selectedChatWithStatus}
+                messages={messages}
+                availableUsers={users}
+                onForwardMessage={handleForwardMessage}
+                onSendMessage={handleSendMessage}
+                onSendAttachment={handleSendAttachment}
+                onTypingChange={handleTypingChange}
+                onEditMessage={handleEditMessage}
+                onDeleteForEveryone={handleDeleteForEveryone}
+                onDeleteForMe={handleDeleteForMe}
+                onBack={handleBackToSidebar}
+                sending={sending}
+                isTyping={Boolean(
+                  typingUser &&
+                    String(typingUser._id) === String(selectedChat._id)
+                )}
+                typingUserName={typingUser?.name || selectedChat.name}
+                theme={theme}
+              />
+            )}
+          </>
+        ) : (
+          /* Empty welcome screen */
+          <section
+            className={`relative flex flex-1 items-center justify-center overflow-hidden bg-cover bg-center bg-no-repeat px-4 text-center transition-all duration-300 ${
+              isDark ? "text-white" : "text-slate-600"
+            }`}
+            style={{
+              backgroundImage: isDark
+                ? "url('/chat-bg-dark.png')"
+                : "url('/chat-bg.png')",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }}
+          >
+            {/* Theme overlay */}
             <div
-              role="alert"
-              className="bg-red-500/10 px-4 py-2 text-sm text-red-300"
-            >
-              {error}
-            </div>
-          )}
-
-          {loadingMessages ? (
-            <div className="flex flex-1 items-center justify-center text-slate-400">
-              Loading conversation...
-            </div>
-          ) : (
-            <ChatWindow
-              selectedChat={selectedChatWithStatus}
-              messages={messages}
-              onSendMessage={handleSendMessage}
-              onSendAttachment={handleSendAttachment}
-              onTypingChange={handleTypingChange}
-              onEditMessage={handleEditMessage}
-              onDeleteForEveryone={handleDeleteForEveryone}
-              onDeleteForMe={handleDeleteForMe}
-              sending={sending}
-              isTyping={Boolean(
-                typingUser &&
-                String(typingUser._id) === String(selectedChat._id)
-              )}
-              typingUserName={typingUser?.name || selectedChat.name}
+              className={`absolute inset-0 ${
+                isDark ? "bg-[#080b20]/25" : "bg-white/10"
+              }`}
             />
-          )}
-        </div>
-      ) : (
-        <section className="flex flex-1 items-center justify-center bg-[#0b1020] text-center text-slate-400">
-          <div>
-            <h2 className="mb-2 text-xl font-semibold text-white">
-              Welcome to KNOT
-            </h2>
-            <p>Select a user from the sidebar to start chatting.</p>
-          </div>
-        </section>
-      )}
+
+            <div className="relative z-10">
+              <h2
+                className={`mb-2 text-2xl font-bold ${
+                  isDark ? "text-white" : "text-[#17183d]"
+                }`}
+              >
+                Welcome to KNOT
+              </h2>
+
+              <p
+                className={`text-sm sm:text-base ${
+                  isDark ? "text-slate-300" : "text-[#777797]"
+                }`}
+              >
+                Select a user from the sidebar to start chatting.
+              </p>
+            </div>
+          </section>
+        )}
+      </div>
     </main>
   );
 }
