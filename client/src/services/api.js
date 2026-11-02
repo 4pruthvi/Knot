@@ -264,3 +264,32 @@ export async function uploadAvatar(imageFile) {
 
   return data.user;
 }
+
+
+
+// Upload an image or file as a chat message.
+export async function uploadMessageAttachment(receiverId, file, text = "") {
+  const token = localStorage.getItem("token");
+
+  const formData = new FormData();
+
+  formData.append("receiverId", receiverId);
+  formData.append("text", text);
+  formData.append("attachment", file);
+
+  const response = await fetch(`${API_URL}/messages/upload`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.message || "Failed to upload attachment");
+  }
+
+  return data.message;
+}

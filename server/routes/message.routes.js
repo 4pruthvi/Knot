@@ -1,12 +1,60 @@
-
 import express from "express";
 import mongoose from "mongoose";
 import verifyToken from "../middleware/auth.middleware.js";
 import Message from "../models/message.model.js";
 import User from "../models/user.model.js";
+import multer from "multer";
+import cloudinary from "../config/cloudinary.js";
 
 const createMessageRouter = (io) => {
   const router = express.Router();
+
+  // Configure file upload using memory storage.
+  const upload = multer({
+    storage: multer.memoryStorage(),
+
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10 MB
+    },
+
+    fileFilter: (req, file, callback) => {
+      const allowedTypes = [
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "text/plain",
+        "text/csv",
+      ];
+
+      if (allowedTypes.includes(file.mimetype)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Unsupported file type."));
+      }
+    },
+  });
+
+  // Handle Multer errors.
+  const handleUpload = (req, res, next) => {
+    upload.single("attachment")(req, res, (error) => {
+      if (error) {
+        return res.status(400).json({
+          success: false,
+          message: error.message || "File upload failed.",
+        });
+      }
+
+      next();
+    });
+  };
 
   // Helper: Validate message ID and find message.
   async function findMessage(messageId) {
@@ -97,6 +145,140 @@ const createMessageRouter = (io) => {
       return res.status(500).json({
         success: false,
         message: "Failed to send message.",
+      });
+    }
+  });
+
+  // POST /api/messages/upload
+  // Upload an attachment and send it as a message.
+  router.post("/upload", verifyToken, handleUpload, async (req, res) => {
+    try {
+      const { receiverId, text = "" } = req.body;
+      const senderId = String(req.userId);
+      const file = req.file;
+
+      // Validate receiver ID.
+      if (!mongoose.isValidObjectId(receiverId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid receiver ID.",
+        });
+      }
+
+      if (senderId === String(receiverId)) {
+        return res.status(400).json({
+          success: false,
+          message: "You cannot send a file to yourself.",
+        });
+      }
+
+      // Validate receiver.
+      const receiver = await User.findById(receiverId);
+
+      if (!receiver) {
+        return res.status(404).json({
+          success: false,
+          message: "Receiver not found.",
+        });
+      }
+
+      // A file is required for this endpoint.
+      if (!file) {
+        return res.status(400).json({
+          success: false,
+          message: "Please select a file.",
+        });
+      }
+
+      // Validate optional caption.
+      if (typeof text !== "string" || text.length > 5000) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid message text.",
+        });
+      }
+
+      // Upload file to Cloudinary.
+      const cloudinaryResult = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: "knot/messages",
+            resource_type: "auto",
+          },
+          (error, result) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve(result);
+            }
+          },
+        );
+
+        stream.end(file.buffer);
+      });
+
+      // Determine attachment type.
+      const attachmentType = file.mimetype.startsWith("image/")
+        ? "image"
+        : "file";
+
+      // Save message in MongoDB.
+      const message = await Message.create({
+        sender: senderId,
+        receiver: receiverId,
+        text: text.trim(),
+
+        attachment: {
+          url: cloudinaryResult.secure_url,
+          publicId: cloudinaryResult.public_id,
+          filename: file.originalname,
+          mimeType: file.mimetype,
+          size: cloudinaryResult.bytes,
+          type: attachmentType,
+        },
+      });
+
+      // Prepare message data for frontend.
+      const messageData = {
+        id: String(message._id),
+        sender: String(message.sender),
+        receiver: String(message.receiver),
+        text: message.text,
+        attachment: message.attachment,
+        status: message.status,
+        deliveredAt: message.deliveredAt,
+        readAt: message.readAt,
+        createdAt: message.createdAt,
+        isEdited: false,
+        deletedForEveryone: false,
+      };
+
+      // Notify receiver through Socket.IO.
+      io.to(String(receiverId)).emit("new_message", messageData);
+
+      // Update unread count.
+      const unreadCount = await Message.countDocuments({
+        sender: senderId,
+        receiver: receiverId,
+        status: { $ne: "read" },
+        deletedForEveryone: false,
+      });
+
+      io.to(String(receiverId)).emit("unread_count_update", {
+        senderId,
+        count: unreadCount,
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: messageData,
+      });
+    } catch (error) {
+      console.error("File upload error:", error);
+
+      return res.status(500).json({
+        success: false,
+        message: "Failed to upload attachment.",
       });
     }
   });
@@ -266,7 +448,7 @@ const createMessageRouter = (io) => {
       }
 
       const alreadyDeleted = message.deletedFor.some(
-        (id) => String(id) === currentUserId
+        (id) => String(id) === currentUserId,
       );
 
       if (!alreadyDeleted) {
@@ -384,7 +566,7 @@ const createMessageRouter = (io) => {
             status: "read",
             readAt,
           },
-        }
+        },
       );
 
       io.to(otherUserId).emit("messages_read", {
@@ -466,7 +648,8 @@ const createMessageRouter = (io) => {
           id: String(message._id),
           sender: String(message.sender),
           receiver: String(message.receiver),
-          text: message.text,
+          text: message.text || "",
+          attachment: message.attachment || null,
           status: message.status || "sent",
           deliveredAt: message.deliveredAt || null,
           readAt: message.readAt || null,

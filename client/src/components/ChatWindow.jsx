@@ -10,6 +10,8 @@ import {
   Trash2,
   X,
   Check as Save,
+  FileText,
+  Download,
 } from "lucide-react";
 
 import MessageInput from "./MessageInput";
@@ -26,10 +28,82 @@ function MessageStatus({ status }) {
   return <Check size={15} className="text-slate-300" />;
 }
 
+function formatFileSize(bytes) {
+  if (!bytes) return "";
+
+  if (bytes < 1024) return `${bytes} B`;
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+// Generate a Cloudinary URL that forces file download.
+function getDownloadUrl(url) {
+  if (!url) return "";
+
+  return url.replace("/upload/", "/upload/fl_attachment/");
+}
+
+// Display image or document attachment.
+function MessageAttachment({ attachment }) {
+  if (!attachment?.url) return null;
+
+  if (attachment.type === "image") {
+    return (
+      <a
+        href={attachment.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="mb-2 block overflow-hidden rounded-xl"
+        aria-label="Open image in new tab"
+      >
+        <img
+          src={attachment.url}
+          alt={attachment.filename || "Shared image"}
+          loading="lazy"
+          className="max-h-72 max-w-full rounded-xl object-cover transition hover:opacity-90"
+        />
+      </a>
+    );
+  }
+
+  return (
+    <div className="mb-2 flex min-w-[220px] max-w-full items-center gap-3 rounded-xl border border-white/10 bg-black/10 p-3">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-violet-500/20 text-violet-300">
+        <FileText size={23} />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">
+          {attachment.filename || "Shared file"}
+        </p>
+
+        <p className="mt-1 text-xs opacity-70">
+          {formatFileSize(attachment.size)}
+        </p>
+      </div>
+
+      <a
+        href={getDownloadUrl(attachment.url)}
+        download={attachment.filename || true}
+        aria-label="Download attachment"
+        title="Download file"
+        className="shrink-0 rounded-lg p-2 transition hover:bg-white/10"
+      >
+        <Download size={18} />
+      </a>
+    </div>
+  );
+}
+
 export default function ChatWindow({
   selectedChat,
   messages,
   onSendMessage,
+  onSendAttachment,
   onTypingChange,
   onEditMessage,
   onDeleteForEveryone,
@@ -192,7 +266,6 @@ export default function ChatWindow({
 
       {/* Messages Area */}
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto p-6">
-
         <div className="my-4 text-center text-xs text-slate-500">
           TODAY
         </div>
@@ -263,13 +336,25 @@ export default function ChatWindow({
                   {/* Message bubble and actions */}
                   <div className="group relative flex max-w-full items-center gap-2">
                     <div
-                      className={`break-words rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                      className={`min-w-0 max-w-full break-words rounded-2xl px-4 py-3 text-sm leading-relaxed ${
                         message.mine
                           ? "rounded-br-md bg-violet-500 text-white"
                           : "rounded-bl-md border border-white/10 bg-white/5 text-slate-200"
                       }`}
                     >
-                      {message.text}
+                      {/* Image or file attachment */}
+                      {message.attachment && (
+                        <MessageAttachment
+                          attachment={message.attachment}
+                        />
+                      )}
+
+                      {/* Optional text or caption */}
+                      {message.text && (
+                        <p className="whitespace-pre-wrap break-words">
+                          {message.text}
+                        </p>
+                      )}
                     </div>
 
                     {/* Message action menu */}
@@ -293,7 +378,7 @@ export default function ChatWindow({
                             message.mine ? "right-0" : "left-0"
                           }`}
                         >
-                          {message.mine && (
+                          {message.mine && message.text && (
                             <button
                               type="button"
                               onClick={() => startEditing(message)}
@@ -373,6 +458,7 @@ export default function ChatWindow({
       <div className="shrink-0">
         <MessageInput
           onSend={onSendMessage}
+          onSendAttachment={onSendAttachment}
           onTypingChange={onTypingChange}
           disabled={sending}
         />

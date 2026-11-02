@@ -11,6 +11,7 @@ import {
   getUsers,
   getMessages,
   sendMessage,
+  uploadMessageAttachment,
   getUnreadCounts,
   markMessagesRead,
   editMessage,
@@ -164,14 +165,15 @@ export default function ChatLayout() {
         sender: sender?.name || "Unknown",
         senderId,
         receiver: String(message.receiver),
-        text: message.text,
+        text: message.text || "",
+        attachment: message.attachment || null,
         time: new Date(message.createdAt).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         }),
         mine: false,
         status: message.status || "sent",
-        isEdited: false,
+        isEdited: message.isEdited || false,
       };
 
       if (openChat && String(openChat._id) === senderId) {
@@ -193,10 +195,14 @@ export default function ChatLayout() {
         });
       }
 
+      const lastMessageText = message.attachment
+        ? `📎 ${message.attachment.filename}`
+        : message.text;
+
       setUsers((previous) =>
         previous.map((user) =>
           String(user._id) === senderId
-            ? { ...user, lastMessage: message.text }
+            ? { ...user, lastMessage: lastMessageText }
             : user
         )
       );
@@ -373,7 +379,8 @@ export default function ChatLayout() {
             sender: isMine ? "You" : selectedChat.name,
             senderId: String(message.sender),
             receiver: String(message.receiver),
-            text: message.text,
+            text: message.text || "",
+            attachment: message.attachment || null,
             time: new Date(message.createdAt).toLocaleTimeString([], {
               hour: "2-digit",
               minute: "2-digit",
@@ -466,7 +473,7 @@ export default function ChatLayout() {
     );
   }
 
-  // Send message.
+  // Send text message.
   async function handleSendMessage(text) {
     if (!selectedChat?._id || sending) return;
 
@@ -488,6 +495,7 @@ export default function ChatLayout() {
         senderId: String(currentUser.id),
         receiver: String(selectedChat._id),
         text: savedMessage.text,
+        attachment: savedMessage.attachment || null,
         time: new Date(savedMessage.createdAt).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -515,6 +523,63 @@ export default function ChatLayout() {
     } catch (err) {
       console.error("Failed to send message:", err);
       setError(err.message || "Could not send message.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  // Send image or file attachment.
+  async function handleSendAttachment(file, caption = "") {
+    if (!selectedChat?._id || sending) return;
+
+    setSending(true);
+    setError("");
+
+    try {
+      const savedMessage = await uploadMessageAttachment(
+        selectedChat._id,
+        file,
+        caption
+      );
+
+      const formattedMessage = {
+        id: savedMessage.id,
+        sender: "You",
+        senderId: String(currentUser.id),
+        receiver: String(selectedChat._id),
+        text: savedMessage.text || "",
+        attachment: savedMessage.attachment || null,
+        time: new Date(savedMessage.createdAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        mine: true,
+        status: savedMessage.status || "sent",
+        isEdited: false,
+      };
+
+      setMessages((previous) => {
+        if (previous.some((item) => item.id === formattedMessage.id)) {
+          return previous;
+        }
+
+        return [...previous, formattedMessage];
+      });
+
+      setUsers((previous) =>
+        previous.map((user) =>
+          String(user._id) === String(selectedChat._id)
+            ? {
+                ...user,
+                lastMessage: `📎 ${file.name}`,
+              }
+            : user
+        )
+      );
+    } catch (err) {
+      console.error("Failed to send attachment:", err);
+      setError(err.message || "Could not send attachment.");
+      throw err;
     } finally {
       setSending(false);
     }
@@ -642,6 +707,7 @@ export default function ChatLayout() {
               selectedChat={selectedChatWithStatus}
               messages={messages}
               onSendMessage={handleSendMessage}
+              onSendAttachment={handleSendAttachment}
               onTypingChange={handleTypingChange}
               onEditMessage={handleEditMessage}
               onDeleteForEveryone={handleDeleteForEveryone}
